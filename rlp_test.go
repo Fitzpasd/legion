@@ -61,3 +61,15 @@ func TestSetTheoreticalRepresentation(t *testing.T) {
 
 	testHelper(actual, expected, t)
 }
+
+func TestInteger(t *testing.T) {
+	testHelper(encodeAndIgnoreError(0), []byte{0x80}, t)
+	testHelper(encodeAndIgnoreError(1), []byte{0x01}, t)
+	testHelper(encodeAndIgnoreError(15), []byte{0x0f}, t)
+	testHelper(encodeAndIgnoreError(1024), []byte{0x82, 0x04, 0x00}, t)
+	testHelper(encodeAndIgnoreError(30303), []byte{0x82, 0x76, 0x5f}, t)
+}
+
+func TestByteArray(t *testing.T) {
+	testHelper(encodeAndIgnoreError([]byte{127, 0, 0, 1}), []byte{0x84, 0x7f, 0, 0, 1}, t)
+}

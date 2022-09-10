@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -82,6 +84,33 @@ func encodeList(data any) ([]byte, error) {
 	}
 }
 
+func encodeUInt(i uint) ([]byte, error) {
+	switch {
+	case i == 0:
+		return []byte{0x80}, nil
+	case i < 128:
+		return []byte{byte(i)}, nil
+	default:
+		buf := new(bytes.Buffer)
+		err := binary.Write(buf, binary.BigEndian, uint32(i))
+
+		if err != nil {
+			return nil, err
+		} else {
+			bytes := buf.Bytes()
+			i := 0
+
+			for bytes[i] == 0 && i < len(bytes) {
+				i++
+			}
+
+			bytes = bytes[i:]
+
+			return append([]byte{0x80 + byte(len(bytes))}, bytes...), nil
+		}
+	}
+}
+
 func Encode(data any) ([]byte, error) {
 	isList := false
 
@@ -95,6 +124,11 @@ func Encode(data any) ([]byte, error) {
 			return []byte{0xc0}, nil
 		}
 		return encodeString(string(data.([]byte))), nil
+	case int:
+		return encodeUInt(uint(data.(int)))
+	case uint:
+		return encodeUInt(data.(uint))
+
 	case []any, []string:
 		isList = true
 
