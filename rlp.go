@@ -84,7 +84,7 @@ func encodeList(data any) ([]byte, error) {
 	}
 }
 
-func encodeUInt(i uint) ([]byte, error) {
+func encodeUInt(i uint64) ([]byte, error) {
 	switch {
 	case i == 0:
 		return []byte{0x80}, nil
@@ -125,9 +125,11 @@ func Encode(data any) ([]byte, error) {
 		}
 		return encodeString(string(data.([]byte))), nil
 	case int:
-		return encodeUInt(uint(data.(int)))
+		return encodeUInt(uint64(data.(int)))
 	case uint:
-		return encodeUInt(data.(uint))
+		return encodeUInt(uint64(data.(uint)))
+	case uint64:
+		return encodeUInt(data.(uint64))
 
 	case []any, []string:
 		isList = true
