@@ -148,3 +148,93 @@ func Encode(data any) ([]byte, error) {
 		return nil, errors.New(fmt.Sprintf("Unexpected value %s", data))
 	}
 }
+
+func decodeNextList(data []byte, start int) (any, int, error) {
+	prefix := data[start]
+
+	var list []byte
+
+	switch {
+	case prefix >= 0xc0 && prefix <= 0xf7:
+		listLength := int(prefix - 0xc0)
+
+		if listLength == 0 {
+			return []byte{}, start + 1, nil
+		}
+
+		end := start + 1 + listLength
+		list = data[start+1 : end]
+
+	case prefix >= 0xf8 && prefix <= 0xff:
+		listLengthEnd := start + 1 + int(prefix-0xf7)
+		listLengthBytes := data[start+1 : listLengthEnd]
+
+		for len(listLengthBytes) != 4 {
+			listLengthBytes = append([]byte{0}, listLengthBytes...)
+		}
+
+		listLength := int(binary.BigEndian.Uint32(listLengthBytes))
+		end := listLengthEnd + listLength
+		list = data[listLengthEnd:end]
+
+	default:
+		return nil, 0, errors.New(fmt.Sprintf("Unexpected prefix %b", prefix))
+	}
+
+	output := []any{}
+
+	i := 0
+	for {
+		l, n, e := decodeNext(list, i)
+
+		if e != nil {
+			return nil, 0, e
+		}
+
+		output = append(output, l)
+
+		if n >= len(list) {
+			break
+		} else {
+			i = n
+		}
+	}
+
+	return output, start + len(list) + 1, nil
+}
+
+func decodeNext(data []byte, start int) (any, int, error) {
+	prefix := data[start]
+
+	switch {
+	case prefix < 0x80:
+		return string(prefix), start + 1, nil
+
+	case prefix >= 0x80 && prefix <= 0xb7:
+		stringLength := int(prefix - 0x80)
+		end := start + 1 + stringLength
+		return string(data[start+1 : end]), end, nil
+
+	case prefix >= 0xb8 && prefix <= 0xbf:
+		stringLengthEnd := start + 1 + int(prefix-0xb7)
+		stringLengthBytes := data[start+1 : stringLengthEnd]
+
+		for len(stringLengthBytes) != 4 {
+			stringLengthBytes = append([]byte{0}, stringLengthBytes...)
+		}
+
+		stringLength := int(binary.BigEndian.Uint32(stringLengthBytes))
+		end := stringLengthEnd + stringLength
+		return string(data[stringLengthEnd:end]), end, nil
+
+	case prefix >= 0xc0 && prefix <= 0xff:
+		return decodeNextList(data, start)
+	default:
+		return nil, 0, errors.New(fmt.Sprintf("Unexpected prefix %b", prefix))
+	}
+}
+
+func Decode(data []byte) (any, error) {
+	decoded, _, err := decodeNext(data, 0)
+	return decoded, err
+}
