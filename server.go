@@ -16,15 +16,16 @@ type Server interface {
 	GetUdpPort() int
 	GetTcpPort() int
 	Start()
-	WritePing(to *RemoteNode) error
+	WritePing(*RemoteNode, func(*PongPacketData)) error
 }
 
 type serverImpl struct {
-	localNode LocalNode
-	udpSocket *net.UDPConn
-	ip        string
-	udpPort   int
-	tcpPort   int
+	localNode     LocalNode
+	udpSocket     *net.UDPConn
+	ip            string
+	udpPort       int
+	tcpPort       int
+	pingCallbacks map[string]func(*PongPacketData)
 }
 
 func NewServer(localAddress string, localNode LocalNode) (Server, error) {
@@ -51,6 +52,7 @@ func NewServer(localAddress string, localNode LocalNode) (Server, error) {
 		ip,
 		udpPort,
 		0,
+		make(map[string]func(*PongPacketData)),
 	}, nil
 }
 
@@ -108,12 +110,23 @@ func (s serverImpl) handlePingPacket(header *PacketHeader, data *PingPacketData,
 
 func (s serverImpl) handlePongPacket(header *PacketHeader, data *PongPacketData, from *net.UDPAddr) {
 	fmt.Println("Handling pong packet")
+
+	mapKey := string(data.pingHash)
+	callback := s.pingCallbacks[mapKey]
+
+	if callback == nil {
+		fmt.Println("Failed to find callback for ping")
+		return
+	}
+
+	callback(data)
+	delete(s.pingCallbacks, mapKey)
 }
 
-func (s serverImpl) WritePing(to *RemoteNode) error {
+func (s serverImpl) WritePing(to *RemoteNode, callback func(*PongPacketData)) error {
 	fmt.Println("Writing ping to", to.address.IP, to.address.Port)
 
-	pingPacket, _, err := NewPingPacket(4,
+	pingPacket, hash, err := NewPingPacket(4,
 		Endpoint{
 			s.GetIP(),
 			s.GetUdpPort(),
@@ -138,6 +151,8 @@ func (s serverImpl) WritePing(to *RemoteNode) error {
 	if err != nil {
 		return err
 	}
+
+	s.pingCallbacks[string(hash)] = callback
 
 	fmt.Println("Wrote ping bytes", numBytesWritten)
 
