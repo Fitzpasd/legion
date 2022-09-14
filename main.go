@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 )
 
 func main() {
@@ -16,7 +17,9 @@ func main() {
 
 	// Write ping to bootnode
 	bootNode := GetBootNode()
-	server.WritePing(&bootNode)
+	server.WritePing(&bootNode, func(ppd *PongPacketData) {
+		fmt.Println("Got ping response", ppd.pingHash)
+	})
 
 	select {}
 }
