@@ -108,6 +108,25 @@ func DecodePacket(data []byte) (*Packet[any], error) {
 	}, err
 }
 
+func wrapInPacket(packetData []byte, pType PacketType, privKey []byte) ([]byte, []byte, error) {
+	packetBytes := make([]byte, headerSize+len(packetData))
+	packetBytes[headerSize-1] = byte(pType)
+	copy(packetBytes[headerSize:], packetData)
+
+	sig, err := Sign(Keccak256(packetBytes[headerSize-1:]), privKey)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	copy(packetBytes[hashLength:], sig)
+
+	hash := Keccak256(packetBytes[hashLength:])
+	copy(packetBytes, hash)
+
+	return packetBytes, hash, nil
+}
+
 func NewPingPacket(version int, from, to Endpoint, expiration uint64, enrSeqNum int, privKey []byte) ([]byte, []byte, error) {
 	packetData := PingPacketData{
 		version,
@@ -123,22 +142,24 @@ func NewPingPacket(version int, from, to Endpoint, expiration uint64, enrSeqNum 
 		return nil, nil, err
 	}
 
-	packetBytes := make([]byte, headerSize+len(encodedPacketData))
-	packetBytes[headerSize-1] = byte(PingPacketType)
-	copy(packetBytes[headerSize:], encodedPacketData)
+	return wrapInPacket(encodedPacketData, PingPacketType, privKey)
+}
 
-	sig, err := Sign(Keccak256(packetBytes[headerSize-1:]), privKey)
+func NewPongPacket(to Endpoint, pingHash []byte, expiration uint64, enrSeqNum int, privKey []byte) ([]byte, []byte, error) {
+	packetData := PongPacketData{
+		to,
+		pingHash,
+		expiration,
+		enrSeqNum,
+	}
+
+	encodedPacketData, err := packetData.ToRLP()
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	copy(packetBytes[hashLength:], sig)
-
-	hash := Keccak256(packetBytes[hashLength:])
-	copy(packetBytes, hash)
-
-	return packetBytes, hash, nil
+	return wrapInPacket(encodedPacketData, PongPacketType, privKey)
 }
 
 func decodeEndpoint(data []any) Endpoint {

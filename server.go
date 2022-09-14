@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 )
 
 const (
 	packetExpiration = 20 * time.Second
 	maxDatagramSize  = 1280
+	enrSeqNum        = 1
 )
 
 type Server interface {
@@ -60,6 +63,8 @@ func (s serverImpl) GetIP() string   { return s.ip }
 func (s serverImpl) GetUdpPort() int { return s.udpPort }
 func (s serverImpl) GetTcpPort() int { return s.tcpPort }
 
+func getExpiration() uint64 { return uint64(time.Now().Add(packetExpiration).Unix()) }
+
 func (s serverImpl) Start() {
 	fmt.Println("Server starting.")
 	go s.readLoop()
@@ -106,6 +111,44 @@ func (s serverImpl) handlePacket(packetBytes []byte, from *net.UDPAddr) {
 
 func (s serverImpl) handlePingPacket(header *PacketHeader, data *PingPacketData, from *net.UDPAddr) {
 	fmt.Println("Handling ping packet")
+	pongPacket, _, err := NewPongPacket(data.from, header.hash, getExpiration(),
+		enrSeqNum, s.localNode.GetPrivKeyBytes())
+
+	if err != nil {
+		fmt.Println("Failed to create pong response for ping packet", err)
+		return
+	}
+
+	toIp := data.from.ip
+
+	if len(toIp) == 4 {
+		sb := new(strings.Builder)
+		sb.WriteString(strconv.Itoa(int(data.from.ip[0])))
+		sb.WriteRune('.')
+		sb.WriteString(strconv.Itoa(int(data.from.ip[1])))
+		sb.WriteRune('.')
+		sb.WriteString(strconv.Itoa(int(data.from.ip[2])))
+		sb.WriteRune('.')
+		sb.WriteString(strconv.Itoa(int(data.from.ip[3])))
+
+		toIp = sb.String()
+	}
+
+	toAddr, err := net.ResolveUDPAddr("udp4", toIp+":"+fmt.Sprint(data.from.udpPort))
+
+	if err != nil {
+		fmt.Println("Failed to create address for pong packet", err)
+		return
+	}
+
+	_, err = s.udpSocket.WriteToUDP(pongPacket, toAddr)
+
+	if err != nil {
+		fmt.Println("Failed to write pong packet", err)
+		return
+	}
+
+	fmt.Println("Responded to ping with bytes")
 }
 
 func (s serverImpl) handlePongPacket(header *PacketHeader, data *PongPacketData, from *net.UDPAddr) {
@@ -137,8 +180,8 @@ func (s serverImpl) WritePing(to *RemoteNode, callback func(*PongPacketData)) er
 			to.address.Port,
 			0,
 		},
-		uint64(time.Now().Add(packetExpiration).Unix()),
-		1,
+		getExpiration(),
+		enrSeqNum,
 		s.localNode.GetPrivKeyBytes(),
 	)
 
