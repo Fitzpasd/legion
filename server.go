@@ -6,7 +6,10 @@ import (
 	"time"
 )
 
-const maxDatagramSize = 1280
+const (
+	packetExpiration = 20 * time.Second
+	maxDatagramSize  = 1280
+)
 
 type Server interface {
 	GetIP() string
@@ -61,7 +64,7 @@ func (s serverImpl) Start() {
 }
 
 func (s serverImpl) readLoop() {
-	buf := make([]byte, MAX_DATAGRAM_SIZE)
+	buf := make([]byte, maxDatagramSize)
 	for {
 		numBytes, from, err := s.udpSocket.ReadFromUDP(buf)
 
@@ -121,7 +124,7 @@ func (s serverImpl) WritePing(to *RemoteNode) error {
 			to.address.Port,
 			0,
 		},
-		uint64(time.Now().Add(expiration).Unix()),
+		uint64(time.Now().Add(packetExpiration).Unix()),
 		1,
 		s.localNode.GetPrivKeyBytes(),
 	)
