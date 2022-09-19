@@ -153,6 +153,7 @@ func decodeNextList(data []byte, start int) (any, int, error) {
 	prefix := data[start]
 
 	var list []byte
+	var end int
 
 	switch {
 	case prefix >= 0xc0 && prefix <= 0xf7:
@@ -162,7 +163,7 @@ func decodeNextList(data []byte, start int) (any, int, error) {
 			return []byte{}, start + 1, nil
 		}
 
-		end := start + 1 + listLength
+		end = start + 1 + listLength
 		list = data[start+1 : end]
 
 	case prefix >= 0xf8 && prefix <= 0xff:
@@ -174,7 +175,7 @@ func decodeNextList(data []byte, start int) (any, int, error) {
 		}
 
 		listLength := int(binary.BigEndian.Uint32(listLengthBytes))
-		end := listLengthEnd + listLength
+		end = listLengthEnd + listLength
 		list = data[listLengthEnd:end]
 
 	default:
@@ -200,7 +201,7 @@ func decodeNextList(data []byte, start int) (any, int, error) {
 		}
 	}
 
-	return output, start + len(list) + 1, nil
+	return output, end, nil
 }
 
 func decodeNext(data []byte, start int) (any, int, error) {
