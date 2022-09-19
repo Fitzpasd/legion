@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"strconv"
@@ -20,6 +21,7 @@ type Server interface {
 	GetTcpPort() int
 	Start()
 	WritePing(*RemoteNode, func(*PongPacketData)) error
+	FindNeighbors(*RemoteNode) error
 }
 
 type serverImpl struct {
@@ -66,7 +68,7 @@ func (s serverImpl) GetTcpPort() int { return s.tcpPort }
 func getExpiration() uint64 { return uint64(time.Now().Add(packetExpiration).Unix()) }
 
 func (s serverImpl) Start() {
-	fmt.Println("Server starting.")
+	fmt.Println("Server starting.", s.ip, s.udpPort)
 	go s.readLoop()
 }
 
@@ -80,7 +82,11 @@ func (s serverImpl) readLoop() {
 		}
 
 		fmt.Println("Read new packet. Size", numBytes)
-		s.handlePacket(buf[:numBytes], from)
+
+		bytes := make([]byte, numBytes)
+		copy(bytes, buf)
+
+		go s.handlePacket(bytes, from)
 	}
 }
 
@@ -104,13 +110,19 @@ func (s serverImpl) handlePacket(packetBytes []byte, from *net.UDPAddr) {
 			&decodedPacket.header,
 			decodedPacket.data.(*PongPacketData),
 			from)
+
+	case NeighborsPacketType:
+		s.handleNeighborsPacket(
+			&decodedPacket.header,
+			decodedPacket.data.(*NeighborsPacketData),
+			from)
 	default:
 		fmt.Println("Cannot handle packet with type", t)
 	}
 }
 
 func (s serverImpl) handlePingPacket(header *PacketHeader, data *PingPacketData, from *net.UDPAddr) {
-	fmt.Println("Handling ping packet")
+	fmt.Println("Replying to ping packet with hash", hex.EncodeToString(header.hash))
 	pongPacket, _, err := NewPongPacket(data.from, header.hash, getExpiration(),
 		enrSeqNum, s.localNode.GetPrivKeyBytes())
 
@@ -148,11 +160,11 @@ func (s serverImpl) handlePingPacket(header *PacketHeader, data *PingPacketData,
 		return
 	}
 
-	fmt.Println("Responded to ping with bytes")
+	fmt.Println("Responded to ping")
 }
 
 func (s serverImpl) handlePongPacket(header *PacketHeader, data *PongPacketData, from *net.UDPAddr) {
-	fmt.Println("Handling pong packet")
+	fmt.Println("Handling pong packet with ping hash", hex.EncodeToString(data.pingHash))
 
 	mapKey := string(data.pingHash)
 	callback := s.pingCallbacks[mapKey]
@@ -164,6 +176,10 @@ func (s serverImpl) handlePongPacket(header *PacketHeader, data *PongPacketData,
 
 	callback(data)
 	delete(s.pingCallbacks, mapKey)
+}
+
+func (s serverImpl) handleNeighborsPacket(header *PacketHeader, data *NeighborsPacketData, from *net.UDPAddr) {
+	fmt.Println("Got neighbors", len(data.nodes))
 }
 
 func (s serverImpl) WritePing(to *RemoteNode, callback func(*PongPacketData)) error {
@@ -189,7 +205,7 @@ func (s serverImpl) WritePing(to *RemoteNode, callback func(*PongPacketData)) er
 		return err
 	}
 
-	numBytesWritten, err := s.udpSocket.WriteToUDP(pingPacket, to.address)
+	_, err = s.udpSocket.WriteToUDP(pingPacket, to.address)
 
 	if err != nil {
 		return err
@@ -197,7 +213,26 @@ func (s serverImpl) WritePing(to *RemoteNode, callback func(*PongPacketData)) er
 
 	s.pingCallbacks[string(hash)] = callback
 
-	fmt.Println("Wrote ping bytes", numBytesWritten)
+	fmt.Println("Wrote ping with hash", hex.EncodeToString(hash))
+
+	return nil
+}
+
+func (s serverImpl) FindNeighbors(to *RemoteNode) error {
+	fmt.Println("Writing find neighbors request")
+	packet, _, err := NewFindNodePacket(s.localNode.GetId(), getExpiration(), s.localNode.GetPrivKeyBytes())
+
+	if err != nil {
+		return err
+	}
+
+	numBytesWritten, err := s.udpSocket.WriteToUDP(packet, to.address)
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Wrote find neighbors bytes", numBytesWritten)
 
 	return nil
 }

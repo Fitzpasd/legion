@@ -19,6 +19,9 @@ func main() {
 	bootNode := GetBootNode()
 	server.WritePing(&bootNode, func(ppd *PongPacketData) {
 		fmt.Println("Got ping response", ppd.pingHash)
+		// This assumes the bootnode has also endpoint proofed us at this
+		// point in time.
+		server.FindNeighbors(&bootNode)
 	})
 
 	select {}
