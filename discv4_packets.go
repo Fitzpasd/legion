@@ -10,16 +10,19 @@ type PacketType byte
 
 // Packet types
 const (
-	InvalidPacketType PacketType = 0x00
-	PingPacketType    PacketType = 0x01
-	PongPacketType    PacketType = 0x02
+	InvalidPacketType   PacketType = 0x00
+	PingPacketType      PacketType = 0x01
+	PongPacketType      PacketType = 0x02
+	FindNodePacketType  PacketType = 0x03
+	NeighborsPacketType PacketType = 0x04
 )
 
 // Errors
 var (
-	ErrorPacketTooSmall    = errors.New("Packet too small")
-	ErrorInvalidHash       = errors.New("Invalid hash")
-	ErrorInvalidPacketType = errors.New("Invalid packet type")
+	ErrorPacketTooSmall     = errors.New("Packet too small")
+	ErrorInvalidHash        = errors.New("Invalid hash")
+	ErrorInvalidPacketType  = errors.New("Invalid packet type")
+	ErrorInvalidPacketShape = errors.New("Invalid packet shape")
 )
 
 const (
@@ -60,6 +63,23 @@ type PongPacketData struct {
 	enrSeqNum  int
 }
 
+type FindNodePacketData struct {
+	target     string
+	expiration uint64
+}
+
+type NeighborNode struct {
+	ip      string
+	udpPort uint64
+	tcpPort uint64
+	nodeId  string
+}
+
+type NeighborsPacketData struct {
+	nodes      []NeighborNode
+	expiration uint64
+}
+
 func (p *PingPacketData) ToRLP() ([]byte, error) {
 	return Encode([]any{
 		p.version,
@@ -76,6 +96,10 @@ func (p *PongPacketData) ToRLP() ([]byte, error) {
 		p.expiration,
 		p.enrSeqNum,
 	})
+}
+
+func (p *FindNodePacketData) ToRLP() ([]byte, error) {
+	return Encode([]any{p.target, p.expiration})
 }
 
 func DecodePacket(data []byte) (*Packet[any], error) {
@@ -98,8 +122,14 @@ func DecodePacket(data []byte) (*Packet[any], error) {
 		packetData, err = decodePingPacketData(packetDataBytes)
 	case PongPacketType:
 		packetData, err = decodePongPacketData(packetDataBytes)
+	case NeighborsPacketType:
+		packetData, err = decodeNeighborsPacketData(packetDataBytes)
 	default:
 		err = ErrorInvalidPacketType
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	return &Packet[any]{
@@ -162,6 +192,17 @@ func NewPongPacket(to Endpoint, pingHash []byte, expiration uint64, enrSeqNum in
 	return wrapInPacket(encodedPacketData, PongPacketType, privKey)
 }
 
+func NewFindNodePacket(target []byte, expiration uint64, privKey []byte) ([]byte, []byte, error) {
+	packetData := FindNodePacketData{string(target), expiration}
+	encodedPacketData, err := packetData.ToRLP()
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return wrapInPacket(encodedPacketData, FindNodePacketType, privKey)
+}
+
 func decodeEndpoint(data []any) Endpoint {
 	return Endpoint{
 		ip:      data[0].(string),
@@ -201,6 +242,10 @@ func decodePacketType(t byte) PacketType {
 		return PingPacketType
 	case 0x02:
 		return PongPacketType
+	case 0x03:
+		return FindNodePacketType
+	case 0x04:
+		return NeighborsPacketType
 	default:
 		return InvalidPacketType
 	}
@@ -250,6 +295,48 @@ func decodePongPacketData(data []byte) (*PongPacketData, error) {
 		expiration: decodeUInt64([]byte(decodedList[2].(string))),
 		enrSeqNum:  int(decodeUInt64([]byte(decodedList[3].(string)))),
 	}, nil
+}
+
+func decodeNeighborNode(data []any) NeighborNode {
+	return NeighborNode{
+		ip:      data[0].(string),
+		udpPort: decodeUInt64([]byte(data[1].(string))),
+		tcpPort: decodeUInt64([]byte(data[2].(string))),
+		nodeId:  data[3].(string),
+	}
+}
+
+func decodeNeighborsPacketData(data []byte) (*NeighborsPacketData, error) {
+	decoded, err := Decode(data)
+
+	if err != nil {
+		return nil, err
+	}
+
+	decodedList, b := decoded.([]any)
+	if !b {
+		return nil, ErrorInvalidPacketShape
+	}
+
+	nodes, b := decodedList[0].([]any)
+	if !b {
+		return nil, ErrorInvalidPacketShape
+	}
+
+	var packetData NeighborsPacketData
+
+	for _, node := range nodes {
+		packetData.nodes = append(packetData.nodes, decodeNeighborNode(node.([]any)))
+	}
+
+	expiration, b := decodedList[1].(string)
+	if !b {
+		return nil, ErrorInvalidPacketShape
+	}
+
+	packetData.expiration = decodeUInt64([]byte(expiration))
+
+	return &packetData, nil
 }
 
 func decodeUInt64(data []byte) uint64 {
