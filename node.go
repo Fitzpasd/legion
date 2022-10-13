@@ -12,6 +12,8 @@ const bootEnodeUrl = "enode://22a8232c3abc76a16ae9d6c3b164f98775fe226f0917b0ca87
 type LocalNode interface {
 	GetPrivKeyBytes() []byte
 	GetId() []byte
+
+	AddNeighborNode(Enode)
 }
 
 type LocalNodeData struct {
@@ -49,6 +51,9 @@ func (ln LocalNodeData) GetPrivKeyBytes() []byte {
 func (ln LocalNodeData) GetId() []byte {
 	// Index 0 is the uncrompressed serialized flag. Not needed.
 	return ln.privKey.PubKey().SerializeUncompressed()[1:]
+}
+
+func (ln LocalNodeData) AddNeighborNode(node Enode) {
 }
 
 func ParseEnode(enodeUrl string) (*Enode, error) {

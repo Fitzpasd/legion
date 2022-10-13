@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -131,21 +130,7 @@ func (s serverImpl) handlePingPacket(header *PacketHeader, data *PingPacketData,
 		return
 	}
 
-	toIp := data.from.ip
-
-	if len(toIp) == 4 {
-		sb := new(strings.Builder)
-		sb.WriteString(strconv.Itoa(int(data.from.ip[0])))
-		sb.WriteRune('.')
-		sb.WriteString(strconv.Itoa(int(data.from.ip[1])))
-		sb.WriteRune('.')
-		sb.WriteString(strconv.Itoa(int(data.from.ip[2])))
-		sb.WriteRune('.')
-		sb.WriteString(strconv.Itoa(int(data.from.ip[3])))
-
-		toIp = sb.String()
-	}
-
+	toIp := NormalizeIp(data.from.ip)
 	toAddr, err := net.ResolveUDPAddr("udp4", toIp+":"+fmt.Sprint(data.from.udpPort))
 
 	if err != nil {
@@ -180,6 +165,15 @@ func (s serverImpl) handlePongPacket(header *PacketHeader, data *PongPacketData,
 
 func (s serverImpl) handleNeighborsPacket(header *PacketHeader, data *NeighborsPacketData, from *net.UDPAddr) {
 	fmt.Println("Got neighbors", len(data.nodes))
+
+	for _, node := range data.nodes {
+		s.localNode.AddNeighborNode(Enode{
+			id:      node.nodeId,
+			host:    NormalizeIp(node.ip),
+			udpPort: strconv.Itoa(int(node.udpPort)),
+			tcpPort: strconv.Itoa(int(node.tcpPort)),
+		})
+	}
 }
 
 func (s serverImpl) WritePing(to *RemoteNode, callback func(*PongPacketData)) error {
